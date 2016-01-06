@@ -122,14 +122,14 @@ EOT
             $config = $file->read();
         }
 
-        try {
-            $this->check($configFile);
-        } catch (\Exception $e) {
-            if (!$skipErrors) {
-                throw $e;
-            }
-            $output->writeln(sprintf('<warning>%s: %s</warning>', get_class($e), $e->getMessage()));
-        }
+        // try {
+        //     $this->check($configFile);
+        // } catch (\Exception $e) {
+        //     if (!$skipErrors) {
+        //         throw $e;
+        //     }
+        //     $output->writeln(sprintf('<warning>%s: %s</warning>', get_class($e), $e->getMessage()));
+        // }
 
         if ($repositoryUrl !== null && count($packagesFilter) > 0) {
             throw new \InvalidArgumentException('The arguments "package" and "repository-url" can not be used together.');
