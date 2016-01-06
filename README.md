@@ -4,7 +4,9 @@ Satis - Package Repository Generator
 Simple static Composer repository generator.
 
 It uses any composer.json file as input and dumps all the required (according
-to their version constraints) packages to a Composer Repository file.
+to their version constraints) packages into a Composer Repository file.
+
+[![Build Status](https://travis-ci.org/composer/satis.svg?branch=master)](https://travis-ci.org/composer/satis)
 
 Usage
 -----
@@ -24,9 +26,8 @@ Updating is as simple as running `git pull && php composer.phar install` in the 
 Contributing
 ------------
 
-All code contributions - including those of people having commit access -
-must go through a pull request and approved by a core developer before being
-merged. This is to ensure proper review of all the code.
+Please note that this project is released with a [Contributor Code of Conduct](http://contributor-covenant.org/version/1/2/0/).
+By participating in this project you agree to abide by its terms.
 
 Fork the project, create a feature branch, and send us a pull request.
 
@@ -42,6 +43,13 @@ Jordi Boggiano - <j.boggiano@seld.be> - <http://twitter.com/seldaek> - <http://s
 Nils Adermann - <naderman@naderman.de> - <http://twitter.com/naderman> - <http://www.naderman.de><br />
 
 See also the list of [contributors](https://github.com/composer/satis/contributors) who participated in this project.
+
+Community Tools
+---------------
+- [satis-go](https://github.com/benschw/satis-go) - A simple web server for managing Satis configuration and hosting the generated Composer repository.
+- [satisfy](https://github.com/ludofleury/satisfy) - Symfony based composer repository manager with a simple web UI.
+
+
 
 License
 -------

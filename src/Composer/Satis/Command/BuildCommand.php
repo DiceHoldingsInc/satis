@@ -16,10 +16,15 @@ use Composer\Composer;
 use Composer\Config;
 use Composer\Config\JsonConfigSource;
 use Composer\Json\JsonFile;
+use Composer\Json\JsonValidationException;
 use Composer\Satis\Builder\ArchiveBuilder;
 use Composer\Satis\Builder\PackagesBuilder;
 use Composer\Satis\Builder\WebBuilder;
+use Composer\Satis\PackageSelection\PackageSelection;
 use Composer\Util\RemoteFilesystem;
+use JsonSchema\Validator;
+use Seld\JsonLint\JsonParser;
+use Seld\JsonLint\ParsingException;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -39,6 +44,7 @@ class BuildCommand extends Command
                 new InputArgument('file', InputArgument::OPTIONAL, 'Json file to use', './satis.json'),
                 new InputArgument('output-dir', InputArgument::OPTIONAL, 'Location where to output built files', null),
                 new InputArgument('packages', InputArgument::IS_ARRAY | InputArgument::OPTIONAL, 'Packages that should be built, if not provided all packages are.', null),
+                new InputOption('repository-url', null, InputOption::VALUE_OPTIONAL, 'Only update the repository at given url', null),
                 new InputOption('no-html-output', null, InputOption::VALUE_NONE, 'Turn off HTML view'),
                 new InputOption('skip-errors', null, InputOption::VALUE_NONE, 'Skip Download or Archive errors'),
             ))
@@ -77,6 +83,11 @@ The json config file accepts the following keys:
   of the repository (where you will host it).
 - <info>"twig-template"</info>: Location of twig template to use for
   building the html output.
+- <info>"abandoned"</info>: Packages that are abandoned. As the key use the
+  package name, as the value use true or the replacement package.
+- <info>"notify-batch"</info>: Allows you to specify a URL that will
+  be called every time a user installs a package, see
+  https://getcomposer.org/doc/05-repositories.md#notify-batch
 EOT
             );
     }
@@ -90,6 +101,7 @@ EOT
         $verbose = $input->getOption('verbose');
         $configFile = $input->getArgument('file');
         $packagesFilter = $input->getArgument('packages');
+        $repositoryUrl = $input->getOption('repository-url');
         $skipErrors = (bool) $input->getOption('skip-errors');
 
         // load auth.json authentication information and pass it to the io interface
@@ -110,6 +122,19 @@ EOT
             $config = $file->read();
         }
 
+        try {
+            $this->check($configFile);
+        } catch (\Exception $e) {
+            if (!$skipErrors) {
+                throw $e;
+            }
+            $output->writeln(sprintf('<warning>%s: %s</warning>', get_class($e), $e->getMessage()));
+        }
+
+        if ($repositoryUrl !== null && count($packagesFilter) > 0) {
+            throw new \InvalidArgumentException('The arguments "package" and "repository-url" can not be used together.');
+        }
+
         // disable packagist by default
         unset(Config::$defaultRepositories['packagist']);
 
@@ -122,27 +147,31 @@ EOT
         }
 
         $composer = $this->getApplication()->getComposer(true, $config);
-        $packagesBuilder = new PackagesBuilder($output, $outputDir, $config, $skipErrors);
-        $packagesBuilder->setPackagesFilter($packagesFilter);
-        $packages = $packagesBuilder->select($composer, $verbose);
+        $packageSelection = new PackageSelection($output, $outputDir, $config, $skipErrors);
+
+        if ($repositoryUrl !== null) {
+            $packageSelection->setRepositoryFilter($repositoryUrl);
+        } else {
+            $packageSelection->setPackagesFilter($packagesFilter);
+        }
+
+        $packages = $packageSelection->select($composer, $verbose);
 
         if (isset($config['archive']['directory'])) {
             $downloads = new ArchiveBuilder($output, $outputDir, $config, $skipErrors);
-            $downloads
-                ->setInputInterface($input)
-                ->setHelperSet($this->getApplication()->getHelperSet())
-            ;
+            $downloads->setComposer($composer);
             $downloads->dump($packages);
         }
 
-        if (!$packagesBuilder->hasFilterForPackages()) {
-            // in case of an active package filter we need to load the dumped packages.json and merge the
+        if ($packageSelection->hasFilterForPackages() || $packageSelection->hasRepositoryFilter()) {
+            // in case of an active filter we need to load the dumped packages.json and merge the
             // updated packages in
-            $oldPackages = $packagesBuilder->load();
+            $oldPackages = $packageSelection->load();
             $packages += $oldPackages;
             ksort($packages);
         }
 
+        $packagesBuilder = new PackagesBuilder($output, $outputDir, $config, $skipErrors);
         $packagesBuilder->dump($packages);
 
         if ($htmlView = !$input->getOption('no-html-output')) {
@@ -199,5 +228,48 @@ EOT
         }
 
         return $home;
+    }
+
+    /**
+     * Validates the syntax and the schema of the current config json file
+     * according to satis-schema.json rules.
+     *
+     * @param  string $configFile      The json file to use
+     *
+     * @throws ParsingException        if the json file has an invalid syntax
+     * @throws JsonValidationException if the json file doesn't match the schema
+     *
+     * @return bool                    true on success
+     */
+    private function check($configFile)
+    {
+        $content = file_get_contents($configFile);
+
+        $parser = new JsonParser();
+        $result = $parser->lint($content);
+        if (null === $result) {
+            if (defined('JSON_ERROR_UTF8') && JSON_ERROR_UTF8 === json_last_error()) {
+                throw new \UnexpectedValueException('"'.$configFile.'" is not UTF-8, could not parse as JSON');
+            }
+
+            $data = json_decode($content);
+
+            $schemaFile = __DIR__.'/../../../../res/satis-schema.json';
+            $schema = json_decode(file_get_contents($schemaFile));
+            $validator = new Validator();
+            $validator->check($data, $schema);
+
+            if (!$validator->isValid()) {
+                $errors = array();
+                foreach ((array) $validator->getErrors() as $error) {
+                    $errors[] = ($error['property'] ? $error['property'].' : ' : '').$error['message'];
+                }
+                throw new JsonValidationException('The json config file does not match the expected JSON schema', $errors);
+            }
+
+            return true;
+        }
+
+        throw new ParsingException('"'.$configFile.'" does not contain valid JSON'."\n".$result->getMessage(), $result->getDetails());
     }
 }

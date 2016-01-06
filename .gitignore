@@ -1,8 +1,0 @@
-/.settings
-/.project
-/.buildpath
-/satis.phar
-/vendor
-/phpunit.xml
-composer.phar
-.php_cs.cache
